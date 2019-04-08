@@ -1,0 +1,23 @@
+{
+    "lingua": "fr",
+    "model_name": "rms",
+    "base_regressors": [
+        "rms"
+    ],
+    "embedding": {
+        "dim": 0,
+        "name_base": "",
+        "regressors": "infer"
+    },
+    "alpha": [
+        0
+    ],
+    "dimension": [
+        {
+            "start": 1,
+            "end": 2,
+            "step": 1
+        }
+    ],
+    "orthonormalize": true
+}

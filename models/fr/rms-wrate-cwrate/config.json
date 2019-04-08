@@ -1,0 +1,25 @@
+{
+    "lingua": "fr",
+    "model_name": "rms-wrate-cwrate",
+    "base_regressors": [
+        "rms",
+        "wrate",
+        "cwrate"
+    ],
+    "embedding": {
+        "dim": 0,
+        "name_base": "",
+        "regressors": "infer"
+    },
+    "alpha": [
+        0
+    ],
+    "dimension": [
+        {
+            "start": 1,
+            "end": 4,
+            "step": 1
+        }
+    ],
+    "orthonormalize": true
+}

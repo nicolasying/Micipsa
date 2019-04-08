@@ -1,0 +1,45 @@
+{
+    "lingua": "fr",
+    "model_name": "rms-wrate-cwrate-sig200",
+    "base_regressors": [
+        "rms",
+        "wrate",
+        "cwrate"
+    ],
+    "embedding": {
+        "dim": 200,
+        "name_base": "sig_dim200_voc24519_d",
+        "regressors": "infer"
+    },
+    "alpha": [
+        0,
+        {
+            "start": 0,
+            "end": 2.4,
+            "step": 5
+        },
+        {
+            "start": 2.5,
+            "end": 4,
+            "step": 20
+        }
+    ],
+    "dimension": [
+        {
+            "start": 1,
+            "end": 4,
+            "step": 1
+        },
+        {
+            "start": 4,
+            "end": 25,
+            "step": 2
+        },
+        {
+            "start": 25,
+            "end": 206,
+            "step": 10
+        }
+    ],
+    "orthonormalize": true
+}
