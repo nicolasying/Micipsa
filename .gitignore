@@ -1,6 +1,16 @@
+# IDE
 .vscode/*
-data/*
+
+# Python
 */__pycache__/*
-**/design_matrices/*
-*/cache/*
+
+# Cython
 *.so
+lib/*.c
+lib/build/*
+lib/lib/*
+
+# LPP Project
+data/*
+**/design_matrices/*
+**/cache/*

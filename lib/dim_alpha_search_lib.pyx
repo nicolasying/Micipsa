@@ -20,7 +20,7 @@ from nilearn.masking import apply_mask, compute_epi_mask
 from nilearn.plotting import plot_glass_brain
 from numpy.random import randint
 from sklearn.linear_model import Ridge
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, mean_squared_error, explained_variance_score
 from sklearn.model_selection import KFold, LeaveOneGroupOut
 
 cimport numpy as np
@@ -37,47 +37,50 @@ def parallel_fit(double alpha, np.ndarray[double, ndim=2] x_train, np.ndarray[fl
     model = Ridge(alpha=alpha, fit_intercept=False,
                   normalize=False).fit(x_train, y_train)
     # print(r2_score(y_train, model.predict(x_train)), r2_score(y_test, model.predict(x_test)))
-    return clean_rscorer(model, x_train, y_train), clean_rscorer(model, x_test, y_test)
+    return r2_score(y_train, model.predict(x_train), multioutput='raw_values'), r2_score(y_test, model.predict(x_test), multioutput='raw_values'), \
+        mean_squared_error(y_train, model.predict(x_train), multioutput='raw_values'), mean_squared_error(y_test, model.predict(x_test), multioutput='raw_values')
+        # , \
+        # explained_variance_score(y_train, model.predict(x_train), multioutput='raw_values'), explained_variance_score(y_test, model.predict(x_test), multioutput='raw_values')
 
 
-def dim_alpha_search(fmri_runs, design_matrices, alphas, dimensions, loglabel, dump_file):
-    pickle.dump(loglabel, dump_file, protocol=4)
-    pickle.dump(alphas, dump_file, protocol=4)
-    pickle.dump(dimensions, dump_file, protocol=4)
+# def dim_alpha_search(fmri_runs, design_matrices, alphas, dimensions, loglabel, dump_file):
+#     pickle.dump(loglabel, dump_file, protocol=4)
+#     pickle.dump(alphas, dump_file, protocol=4)
+#     pickle.dump(dimensions, dump_file, protocol=4)
 
-    cdef int n_alpha = len(alphas)
-    cdef int n_dim = len(dimensions)
-    cdef int n_train = len(fmri_runs)
-    cdef int n_voxel = fmri_runs[0].shape[1]
-    cdef np.ndarray[double, ndim = 4] r2_cv_train_score
-    cdef np.ndarray[double, ndim = 4] r2_cv_test_score
+#     cdef int n_alpha = len(alphas)
+#     cdef int n_dim = len(dimensions)
+#     cdef int n_train = len(fmri_runs)
+#     cdef int n_voxel = fmri_runs[0].shape[1]
+#     cdef np.ndarray[double, ndim = 4] r2_cv_train_score
+#     cdef np.ndarray[double, ndim = 4] r2_cv_test_score
 
-    train = [i for i in range(0, n_train)]
-    r2_cv_train_score = np.zeros(
-        (n_train, n_dim, n_alpha, n_voxel), dtype=np.float64)
-    r2_cv_test_score = np.zeros(
-        (n_train, n_dim, n_alpha, n_voxel), dtype=np.float64)
+#     train = [i for i in range(0, n_train)]
+#     r2_cv_train_score = np.zeros(
+#         (n_train, n_dim, n_alpha, n_voxel), dtype=np.float64)
+#     r2_cv_test_score = np.zeros(
+#         (n_train, n_dim, n_alpha, n_voxel), dtype=np.float64)
 
-    for idx, cv_test_id in enumerate(train):
-        fmri_data = np.vstack([fmri_runs[i] for i in train if i != cv_test_id])
-        predictors_ref = np.vstack([design_matrices[i]
-                                    for i in train if i != cv_test_id])
-        n_images_train = predictors_ref.shape[0]
-        n_images_test = design_matrices[cv_test_id].shape[0]
-        parallel_res = Parallel(n_jobs=-2, prefer="threads")(
-            delayed(parallel_fit)(
-                alpha, predictors_ref[:, :dim], fmri_data, design_matrices[cv_test_id][:, :dim], fmri_runs[cv_test_id])
-            for idx1, dim in enumerate(dimensions) for idx2, alpha in enumerate(alphas))
+#     for idx, cv_test_id in enumerate(train):
+#         fmri_data = np.vstack([fmri_runs[i] for i in train if i != cv_test_id])
+#         predictors_ref = np.vstack([design_matrices[i]
+#                                     for i in train if i != cv_test_id])
+#         n_images_train = predictors_ref.shape[0]
+#         n_images_test = design_matrices[cv_test_id].shape[0]
+#         parallel_res = Parallel(n_jobs=-2, prefer="threads")(
+#             delayed(parallel_fit)(
+#                 alpha, predictors_ref[:, :dim], fmri_data, design_matrices[cv_test_id][:, :dim], fmri_runs[cv_test_id])
+#             for idx1, dim in enumerate(dimensions) for idx2, alpha in enumerate(alphas))
 
-        parallel_res = np.array(parallel_res).reshape(
-            n_dim, n_alpha, 2, n_voxel)
-        r2_cv_train_score[idx, :, :, :] = parallel_res[:, :, 0, :]
-        r2_cv_test_score[idx, :, :, :] = parallel_res[:, :, 1, :]
+#         parallel_res = np.array(parallel_res).reshape(
+#             n_dim, n_alpha, 2, n_voxel)
+#         r2_cv_train_score[idx, :, :, :] = parallel_res[:, :, 0, :]
+#         r2_cv_test_score[idx, :, :, :] = parallel_res[:, :, 1, :]
 
-    pickle.dump(r2_cv_train_score, dump_file, protocol=4)
-    pickle.dump(r2_cv_test_score, dump_file, protocol=4)
+#     pickle.dump(r2_cv_train_score, dump_file, protocol=4)
+#     pickle.dump(r2_cv_test_score, dump_file, protocol=4)
 
-    return r2_cv_train_score.mean(axis=0).max(axis=(0, 1)), r2_cv_test_score.mean(axis=0).max(axis=(0, 1))
+#     return r2_cv_train_score.mean(axis=0).max(axis=(0, 1)), r2_cv_test_score.mean(axis=0).max(axis=(0, 1))
 
 
 def dim_alpha_search_with_log(fmri_runs, design_matrices, alphas, dimensions, loglabel, model, output_dir, send_mail_log, core_number=-1):
@@ -88,21 +91,28 @@ def dim_alpha_search_with_log(fmri_runs, design_matrices, alphas, dimensions, lo
     cdef int n_voxel = fmri_runs[0].shape[1]
     cdef np.ndarray[double, ndim = 3] r2_cv_train_score
     cdef np.ndarray[double, ndim = 3] r2_cv_test_score
+    cdef np.ndarray[double, ndim = 3] mse_cv_train_score
+    cdef np.ndarray[double, ndim = 3] mse_cv_test_score
+    # cdef np.ndarray[double, ndim = 3] ev_cv_train_score
+    # cdef np.ndarray[double, ndim = 3] ev_cv_test_score
 
     train = [i for i in range(0, n_train)]
     r2_cv_train_score = np.zeros((n_dim, n_alpha, n_voxel), dtype=np.float64)
     r2_cv_test_score = np.zeros((n_dim, n_alpha, n_voxel), dtype=np.float64)
-
+    mse_cv_train_score = np.zeros((n_dim, n_alpha, n_voxel), dtype=np.float64)
+    mse_cv_test_score = np.zeros((n_dim, n_alpha, n_voxel), dtype=np.float64)
+    # ev_cv_train_score = np.zeros((n_dim, n_alpha, n_voxel), dtype=np.float64)
+    # ev_cv_test_score = np.zeros((n_dim, n_alpha, n_voxel), dtype=np.float64)
+    
     for idx, cv_test_id in enumerate(train):
-        log_file_name = op.join(
-            output_dir, 'cache', "{}_run_dim_alpha_search_fold_{}.pkl".format(loglabel, idx))
+        score_file_name = op.join(
+            output_dir, 'cache', "{}_fold_{}.npz".format(loglabel, idx))
         search_name =  op.join(
-            output_dir, 'cache', "*{}_run_dim_alpha_search_fold_{}.pkl".format(loglabel, idx))
+            output_dir, 'cache', "*{}*_fold_{}.npz".format(loglabel, idx))
         file_list = glob.glob(search_name)
         if len(file_list) > 0:
             print('Fold {}/{} for {} of {} exists.'.format(idx, n_train, loglabel, model), flush=True)
             continue
-
         print('Fold {}/{}'.format(idx, n_train), flush=True)
         fmri_data = np.vstack([fmri_runs[i] for i in train if i != cv_test_id])
         predictors_ref = np.vstack([design_matrices[i]
@@ -116,15 +126,25 @@ def dim_alpha_search_with_log(fmri_runs, design_matrices, alphas, dimensions, lo
             for idx1, dim in enumerate(dimensions) for idx2, alpha in enumerate(alphas))
 
         parallel_res = np.array(parallel_res).reshape(
-            n_dim, n_alpha, 2, n_voxel)
+            n_dim, n_alpha, 4, n_voxel)
         r2_cv_train_score = parallel_res[:, :, 0, :]
         r2_cv_test_score = parallel_res[:, :, 1, :]
-        with open(log_file_name, "ab+") as dump_file:
-            pickle.dump(loglabel, dump_file, protocol=4)
-            pickle.dump(alphas, dump_file, protocol=4)
-            pickle.dump(dimensions, dump_file, protocol=4)
-            pickle.dump(r2_cv_train_score, dump_file, protocol=4)
-            pickle.dump(r2_cv_test_score, dump_file, protocol=4)
+        mse_cv_train_score = parallel_res[:, :, 2, :]
+        mse_cv_test_score = parallel_res[:, :, 3, :]
+        # ev_cv_train_score = parallel_res[:, :, 4, :]
+        # ev_cv_test_score = parallel_res[:, :, 5, :]
+        # with open(log_file_name, "ab+") as dump_file:
+        #     pickle.dump(loglabel, dump_file, protocol=4)
+        #     pickle.dump(alphas, dump_file, protocol=4)
+        #     pickle.dump(dimensions, dump_file, protocol=4)
+            # pickle.dump(r2_cv_train_score, dump_file, protocol=4)
+            # pickle.dump(r2_cv_test_score, dump_file, protocol=4)
+        np.savez_compressed(score_file_name, r2_test=r2_cv_test_score, r2_train=r2_cv_train_score, \
+             mse_test=mse_cv_test_score, mse_train=mse_cv_train_score,  \
+                 alpha=np.array(alphas), dimension=np.array(dimensions))
+                 #ev_test=ev_cv_test_score, ev_train=ev_cv_train_score,
+        # r2_cv_train_score.save(train_file_name)
+        # r2_cv_test_score.save(test_file_name)
 
         # files.download(log_file_name)
         msg = 'Fold {}/{} of subject {} dumped'.format(

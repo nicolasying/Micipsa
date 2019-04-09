@@ -11,7 +11,8 @@ from . import generate_regressors, merge_regressors, orthonormalize, check_desig
 # import regressions
 from nilearn.input_data import MultiNiftiMasker
 from nilearn.masking import apply_mask, compute_multi_epi_mask
-
+import nibabel as nib
+from nilearn.image import math_img, mean_img
 
 
 class Env:
@@ -58,7 +59,7 @@ class Env:
 
 
 class Model:
-    def __init__(self, model_name, environment):
+    def __init__(self, model_name, environment: Env):
         self.model_name = model_name
         self.environment = environment
         self.model_dir = op.join(environment.model_base_dir, model_name)
@@ -192,13 +193,149 @@ Regressors ({:4d})            :  {}
         regressions.main(self.design_matrix_dir, self.environment.fmri_dir, \
             self.first_level_results, self.model_name, self.alpha, self.dimension, self.environment.get_masker())
         return 
+    
+    def check_individual_results(self, generate_if_missing=False):
+        res_files = glob.glob(op.join(self.first_level_results, 'test_*_r2.nii.gz'))
+        if len(self.environment.get_available_subject()) == len(res_files):
+            return True
+        elif generate_if_missing:
+            self.generate_individual_results()
+            return self.check_individual_results(False)
+        else:
+            print("Model: Got {} first level results for {} subjects.".format(len(res_files), len(self.environment.get_available_subject())))
+            return False
 
     def generate_group_results(self):
         regressions.generate_group_imgs(self.environment.get_available_subject(), 
         self.first_level_results, self.group_level_results)
         return
 
+    def get_result_for_subject(self, subject):
+        res = glob.glob(op.join(self.first_level_results, 'test_{}_r2.nii.gz'.format(subject)))
+        if len(res) != 1:
+            print("Model: Check manually results found for", subject)
+            return
+        return res[0]
 
 
-# class ModelComparison:
-#     def __init__(self, model_name, environment):
+class ModelComparison:
+    def __init__(self, comparison_name, environment: Env):
+        self.comparison_name = comparison_name
+        self.environment = environment
+        self.comp_dir = op.join(environment.model_comp_dir, comparison_name)
+        self.first_level_results = op.join(
+            self.comp_dir, 'first_level_results')
+        self.group_level_results = op.join(
+            self.comp_dir, 'group_level_results')
+        self.configured = False
+        for diry in [self.comp_dir, self.first_level_results, self.group_level_results]:
+            if not op.isdir(diry):
+                os.makedirs(diry)
+    
+    def config_model(self, config_file: str=None, overwrite=False):
+        # Read Model Configuration Files
+        if not self.configured or overwrite:
+            print("ModelComparison: Configuring comparison from", config_file)
+        else:
+            print("ModelComparison: Comparison is already configured")
+            return
+
+        if config_file is None:
+            config_file = op.join(self.comp_dir, 'config.json')
+            print("ModelComparison: using default config file path.")
+        with open(config_file, mode='r') as fi:
+            config = json.load(fp=fi)
+
+        try:
+            if 'lingua' in config:
+                assert config['lingua'] == self.environment.lingua, "ModelComparison: lingua config ({}) mismatch with environment setting ({}).".format(config['lingua'], self.environment.lingua)
+            if 'comparison_name' in config and config['comparison_name'] != self.comparison_name:
+                print("ModelComparison: Overwriting comparison name from {} to {}.".format(self.comparison_name, config['comparison_name']))
+
+            if 'models' in config and len(config['models']) > 0:
+                self.models = {model_name: Model(model_name, self.environment) for model_name in config['models']}
+            else:
+                print("ModelComparison: No base model found in config.")
+                return
+            
+            if 'contrast' in config and len(config['contrast']) > 0:
+                self.contrast = config['contrast']
+            else: 
+                print("ModelComparison: No model contrast found in config.")
+                return
+        except:
+            return                
+        
+        self.configured = True
+        return
+    
+    def print_comp_config(self, out=sys.stdout):
+        if self.configured:
+            contrast_strings = ["-{:>2d}| {:>10}: {:>10} - {:>10}".format(
+                idx, comp_name, models[0], models[1]) for idx, (comp_name, models) in enumerate(self.contrast.items())]
+            out.write("""ModelComparison Config:
+==================================
+Comparison Name : {:>30}    | Language  : {:>5}
+Base Models ({:>4d}): {}
+Contrasts   ({:>4d}):
+{}
+==================================
+""".format(self.comparison_name, self.environment.lingua, len(self.models), ', '.join(self.models.keys()), len(self.contrast), '\n'.join(contrast_strings)))
+        else:
+            print('ModelComparison not configured.')
+        return
+    
+    def generate_individual_results(self, contrast=None):
+        if contrast is None:
+            contrast = list(self.contrast.keys())
+        if isinstance(contrast, list):
+            for con in contrast:
+                self.generate_individual_results(con)
+        elif isinstance(contrast, str) and contrast in self.contrast:
+            output_dir = op.join(self.first_level_results, contrast)
+            if op.isdir(output_dir):
+                os.makedirs(output_dir)
+
+            models_to_compare = self.contrast[contrast]
+            base_model = self.models[models_to_compare[1]]
+            aug_model = self.models[models_to_compare[0]]
+            if base_model.check_individual_results(generate_if_missing=False) and aug_model.check_individual_results(generate_if_missing=False):
+                for subject in self.environment.get_available_subject():
+                    base_model_img = base_model.get_result_for_subject(subject)
+                    aug_model_img = aug_model.get_result_for_subject(subject)
+                    self._contrast_image(aug_model_img, base_model_img, op.join(output_dir, 'test_{}_r2.nii.gz'.format(subject)))
+            else:
+                print("ModelComp: Missing regression results for compared models ({} / {})".format(base_model.model_name, aug_model.model_name))
+            
+        else:
+            print("ModelComp: Unrecognized contrast name.\nBe sure to input contrast among {}".format(", ".join(self.contrast.keys())))
+        return
+
+
+    def generate_group_results(self, contrast=None):
+        if contrast is None:
+            contrast = list(self.contrast.keys())
+        if isinstance(contrast, list):
+            for con in contrast:
+                self.generate_group_results(con)
+        elif isinstance(contrast, str) and contrast in self.contrast:
+            output_dir = op.join(self.group_level_results, contrast)
+            input_dir = op.join(self.first_level_results, contrast)
+            regressions.generate_group_imgs(self.environment.get_available_subject(), 
+            input_dir, output_dir)
+        return
+
+    @staticmethod
+    def _contrast_image(im1, im2, file_path):
+        if file_path is not None:
+            if op.isfile(file_path):
+                return nib.load(file_path)
+        
+        if isinstance(im1, str):
+            im1 = nib.load(im1)
+        if isinstance(im2, str):
+            im2 = nib.load(im2)
+        contrast = math_img("im1 - im2", im1=im1, im2=im2)
+        if file_path is not None:
+            nib.save(contrast, file_path)
+        return contrast
