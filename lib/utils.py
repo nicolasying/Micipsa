@@ -189,9 +189,9 @@ Regressors ({:4d})            :  {}
             check_design_matrices.main(files)
         return
 
-    def generate_individual_results(self):
+    def generate_individual_results(self, core_number=-1):
         regressions.main(self.design_matrix_dir, self.environment.fmri_dir, \
-            self.first_level_results, self.model_name, self.alpha, self.dimension, self.environment.get_masker())
+            self.first_level_results, self.model_name, self.alpha, self.dimension, self.environment.get_masker(), core_number)
         return 
     
     def check_individual_results(self, generate_if_missing=False):

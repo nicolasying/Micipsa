@@ -42,48 +42,64 @@ def generate_group_imgs(subject_list, input_dir, output_dir, file_id='test'):
     nib.save(group_img, op.join(output_dir, file_id + '_r2_group.nii.gz'))
     return group_img
 
-def generate_subject_imgs(subject, output_dir, masker):
+def generate_subject_imgs(subject, output_dir, masker, file_id='test', overwrite=False):
     masker.standardize = False
     masker.detrend = False
     if isinstance(subject, list):
         for sub in subject:
-            generate_subject_imgs(sub, output_dir, masker)
+            generate_subject_imgs(sub, output_dir, masker, file_id)
         return
 
-    # TODO DEBUG
-    r2_score_file = glob.glob(
-        op.join(output_dir, 'cache', '*'+subject+'*.pkl'))
-    if len(r2_score_file) != 9:
-        print('{} has no/corrupted pickled score files.'.format(subject))
+    result_files = glob.glob(
+        op.join(output_dir, '*'+subject+'*.nii.gz'))
+    if len(result_files) == 10:
+        print('{} has existing results.'.format(subject))
+        return 
+    
+    score_files = glob.glob(
+        op.join(output_dir, 'cache', '*'+subject+'*.npz'))
+    if len(score_files) != 9:
+        print('{} has no/corrupted score files.'.format(subject))
         return
     
+    print('Regression | Generate {} imgs...'.format(subject))
+
     try:
-        with open(r2_score_file[0], mode='rb') as fi:
-            assert subject == pickle.load(
-                fi), '{} has wrong pkl file.'.format(subject)
-            alpha_space = pickle.load(fi)
-            dimension_space = pickle.load(fi)
-            train_score = pickle.load(fi)
-            test_score = pickle.load(fi)
-        for score_file in r2_score_file[1:]:
-            with open(score_file, mode='rb') as fi:
-                assert subject == pickle.load(
-                    fi), '{} not aligned in file {}.'.format(subject, score_file)
-                assert alpha_space == pickle.load(
-                    fi), '{} has wrong alpha space in file {}.'.format(subject, score_file)
-                assert dimension_space == pickle.load(
-                    fi), '{} has wrong dim space in file {}.'.format(subject, score_file)
-                train_score += pickle.load(fi)
-                test_score += pickle.load(fi)
+        score_dump = np.load(score_files[0], mmap_mode='r')
+        alpha_space = score_dump['alpha']
+        dimension_space = score_dump['dimension']
+        r2_train_score = score_dump['r2_train']
+        r2_test_score = score_dump['r2_test']
+        mse_train_score = score_dump['mse_train']
+        mse_test_score = score_dump['mse_test']
+
+        for score_file in score_files[1:]:
+            score_dump = np.load(score_file, mmap_mode='r')
+            # assert subject == pickle.load(
+            #     fi), '{} not aligned in file {}.'.format(subject, score_file)
+            assert alpha_space == score_dump['alpha'], '{} has wrong alpha space in file {}.'.format(subject, score_file)
+            assert dimension_space == score_dump['dimension'], '{} has wrong dim space in file {}.'.format(subject, score_file)
+            r2_train_score += score_dump['r2_train']
+            r2_test_score += score_dump['r2_test']
+            mse_train_score += score_dump['mse_train']
+            mse_test_score += score_dump['mse_test']
     except AssertionError:
-        print('{} has no/corrupted pickled score files.'.format(subject))
+        print('{} has no/corrupted score files.'.format(subject))
         return
 
-    test_score /= len(r2_score_file)
-    train_score /= len(r2_score_file)
+    r2_train_score /= len(score_files)
+    r2_test_score /= len(score_files)
+    mse_train_score /= len(score_files)
+    mse_test_score /= len(score_files)
+    nib.save(masker.inverse_transform(r2_train_score.max(axis=(0, 1))), op.join(
+        output_dir, 'train_{}_r2.nii.gz'.format(subject)))
+    nib.save(masker.inverse_transform(mse_train_score.max(axis=(0, 1))), op.join(
+        output_dir, 'train_{}_mse.nii.gz'.format(subject)))
 
+    test_score = r2_test_score
     test_mean = test_score.mean(axis=0)
-    test_best_dim_id = test_score.argmax(axis=0)
+    test_var = test_score.var(axis=0)
+    test_best_dim_id = test_mean.argmax(axis=0)
     test_best_dim_score = test_mean.max(axis=0)
     test_best_dim_best_alpha_id = test_best_dim_score.argmax(axis=0)
     test_best_dim_best_alpha_score = test_best_dim_score.max(axis=0)
@@ -91,19 +107,41 @@ def generate_subject_imgs(subject, output_dir, masker):
         test_mean.shape[-1])]
     test_best_dim_of_best_alpha = dimension_space[test_best_dim_id_of_best_alpha]
     test_best_dim_best_alpha = alpha_space[test_best_dim_best_alpha_id]
+    test_best_dim_best_alpha_var = test_var[test_best_dim_id_of_best_alpha, test_best_dim_best_alpha_id]
 
-    nib.save(masker.inverse_transform(train_score.max(axis=(0, 1))), op.join(
-        output_dir, 'train_{}_r2.nii.gz'.format(subject)))
     nib.save(masker.inverse_transform(test_best_dim_best_alpha_score), op.join(
         output_dir, 'test_{}_r2.nii.gz'.format(subject)))
+    nib.save(masker.inverse_transform(test_best_dim_best_alpha_var), op.join(
+        output_dir, 'test_{}_r2_var.nii.gz'.format(subject)))
     nib.save(masker.inverse_transform(test_best_dim_of_best_alpha), op.join(
-        output_dir, 'test_{}_dim.nii.gz'.format(subject)))
+        output_dir, 'test_{}_dim_r2.nii.gz'.format(subject)))
     nib.save(masker.inverse_transform(test_best_dim_best_alpha), op.join(
-        output_dir, 'test_{}_alpha.nii.gz'.format(subject)))
+        output_dir, 'test_{}_alpha_r2.nii.gz'.format(subject)))
+
+    test_score = mse_test_score
+    test_mean = test_score.mean(axis=0)
+    test_var = test_score.var(axis=0)
+    test_best_dim_id = test_mean.argmax(axis=0)
+    test_best_dim_score = test_mean.max(axis=0)
+    test_best_dim_best_alpha_id = test_best_dim_score.argmax(axis=0)
+    test_best_dim_best_alpha_score = test_best_dim_score.max(axis=0)
+    test_best_dim_id_of_best_alpha = test_best_dim_id[test_best_dim_best_alpha_id, range(
+        test_mean.shape[-1])]
+    test_best_dim_of_best_alpha = dimension_space[test_best_dim_id_of_best_alpha]
+    test_best_dim_best_alpha = alpha_space[test_best_dim_best_alpha_id]
+    test_best_dim_best_alpha_var = test_var[test_best_dim_id_of_best_alpha, test_best_dim_best_alpha_id]
+    nib.save(masker.inverse_transform(test_best_dim_best_alpha_score), op.join(
+        output_dir, 'test_{}_mse.nii.gz'.format(subject)))
+    nib.save(masker.inverse_transform(test_best_dim_best_alpha_var), op.join(
+        output_dir, 'test_{}_mse_var.nii.gz'.format(subject)))
+    nib.save(masker.inverse_transform(test_best_dim_of_best_alpha), op.join(
+        output_dir, 'test_{}_dim_mse.nii.gz'.format(subject)))
+    nib.save(masker.inverse_transform(test_best_dim_best_alpha), op.join(
+        output_dir, 'test_{}_alpha_mse.nii.gz'.format(subject)))
     return
 
 
-def process_subject(subj_dir, subject, dtx_mat, output_dir, model_name, alpha_space, dimension_space, masker):
+def process_subject(subj_dir, subject, dtx_mat, output_dir, model_name, alpha_space, dimension_space, masker, core_number):
     if len(glob.glob(op.join(
             output_dir, 'test_{}_*.nii.gz'.format(subject)))) >= 1:
         print('Skip training {}, using cached file.'.format(subject), flush=True)
@@ -114,11 +152,12 @@ def process_subject(subj_dir, subject, dtx_mat, output_dir, model_name, alpha_sp
     fmri_runs = [masker.transform(f) for f in fmri_filenames]
 
     dim_alpha_search_with_log(fmri_runs, dtx_mat, alpha_space,
-                              dimension_space, subject, model_name, output_dir, send_mail_log)
+                              dimension_space, subject, model_name, output_dir, send_mail_log, core_number)
     gc.collect()
+    # generate_subject_imgs(subject, output_dir, masker)
 
 
-def main(dmtx_dir, subj_dir, output_dir, model_name, alpha_space, dimension_space, masker):
+def main(dmtx_dir, subj_dir, output_dir, model_name, alpha_space, dimension_space, masker, core_number=-1):
     if not op.isdir(output_dir):
         os.mkdir(output_dir)
 
@@ -150,9 +189,7 @@ Searching space is:
         print(msg, flush=True)
         send_mail_log('{} loop'.format(model_name), msg)
         process_subject(subj_dir, subject, dtx_mat, output_dir,
-                        model_name, alpha_space, dimension_space, masker)
-
-    generate_subject_imgs(subj_dir, output_dir, masker)
+                        model_name, alpha_space, dimension_space, masker, core_number)
     return
 
 
