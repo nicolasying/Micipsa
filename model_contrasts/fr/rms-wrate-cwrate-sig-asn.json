@@ -25,7 +25,7 @@
             "rms-wrate-cwrate-asn200",
             "rms-wrate-cwrate"
         ],
-        "asn-sig": [
+        "sig-asn": [
             "rms-wrate-cwrate-sig200",
             "rms-wrate-cwrate-asn200"
         ]

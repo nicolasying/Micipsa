@@ -12,5 +12,9 @@ lib/lib/*
 
 # LPP Project
 data/*
+log/*
 **/design_matrices/*
 **/cache/*
+*.nii.*
+*.png
+config.json

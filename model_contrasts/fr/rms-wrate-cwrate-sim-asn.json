@@ -1,0 +1,33 @@
+{
+    "lingua": "fr",
+    "comparison_name": "rms-wrate-cwrate-sim-asn",
+    "models": [
+        "rms",
+        "rms-wrate",
+        "rms-wrate-cwrate",
+        "rms-wrate-cwrate-sim100",
+        "rms-wrate-cwrate-asn200"
+    ],
+    "contrast": {
+        "wrate": [
+            "rms-wrate",
+            "rms"
+        ],
+        "cwrate": [
+            "rms-wrate-cwrate",
+            "rms-wrate"
+        ],
+        "sim": [
+            "rms-wrate-cwrate-sim100",
+            "rms-wrate-cwrate"
+        ],
+        "asn": [
+            "rms-wrate-cwrate-asn200",
+            "rms-wrate-cwrate"
+        ],
+        "sim-asn": [
+            "rms-wrate-cwrate-sim100",
+            "rms-wrate-cwrate-asn200"
+        ]
+    }
+}

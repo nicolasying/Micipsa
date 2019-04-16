@@ -13,7 +13,7 @@ import json
 
 # Configure Mail Notifyers
 port = 465  # For SSL
-with open('../config.json', mode='r') as fi:
+with open('./config.json', mode='r') as fi:
     config = json.load(fi)
     if 'Notifyer' not in config:
         print("System notifyer unconfigured")
