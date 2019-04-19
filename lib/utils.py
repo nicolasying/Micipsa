@@ -26,7 +26,7 @@ def display_for_subject(dic):
     f, ax = plt.subplots((len(dic)+1)//2, 2, figsize=(30, 3*len(dic)))
     for idx, (key, val) in enumerate(dic.items()):
         plot_glass_brain(val, display_mode='lzry', colorbar=True, title=key, plot_abs=False,
-                         figure=f, axes=ax[idx % ((len(dic)+1)//2), idx//((len(dic)+1)//2)], cmap=cm.coolwarm)
+                         figure=f, axes=ax[idx % ((len(dic)+1)//2), idx//((len(dic)+1)//2)], cmap=plt.cm.coolwarm)
     return f
 
 
@@ -55,6 +55,7 @@ class Env:
     def get_masker(self):
         file_path = op.join(self.fmri_dir, 'masker.pkl')
         if op.isfile(file_path):
+            print('Env: Loading masker')
             with open(file_path, mode='rb') as fl:
                 masker = pickle.load(fl)
 

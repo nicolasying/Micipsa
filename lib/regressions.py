@@ -16,17 +16,70 @@ import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
 import pandas as pd
+import pylab as plt
+import seaborn as sns
 from joblib import Parallel, delayed, dump, load
-from nilearn.input_data import MultiNiftiMasker
-from nilearn.masking import apply_mask, compute_multi_epi_mask
 from nilearn.image import coord_transform, math_img, mean_img, threshold_img
+from nilearn.input_data import MultiNiftiMasker
+from nilearn.masking import (apply_mask, compute_epi_mask,
+                             compute_multi_epi_mask)
+from nilearn.plotting import plot_glass_brain
 from numpy.random import randint
 from scipy.stats import norm
 from sklearn.linear_model import Ridge
-from sklearn.metrics import r2_score
+from sklearn.metrics import (explained_variance_score, mean_squared_error,
+                             r2_score)
+from sklearn.model_selection import KFold, LeaveOneGroupOut
 
-from .dim_alpha_search_lib import dim_alpha_search_with_log
+# from .dim_alpha_search_lib import dim_alpha_search_with_log
 from .notifyer import send_mail_log
+
+
+def parallel_fit(alpha, x_train, y_train, x_test, y_test):
+    model = Ridge(alpha=alpha, fit_intercept=True,
+                  normalize=False, copy_X=True).fit(x_train, y_train)
+    return r2_score(y_test, model.predict(x_test), multioutput='raw_values')
+
+def dim_alpha_search_with_log(fmri_runs, design_matrices, alphas, dimensions, loglabel, model, output_dir, send_mail_log, core_number, verbose):
+    n_alpha = len(alphas)
+    n_dim = len(dimensions)
+    n_train = len(fmri_runs)
+    n_voxel = fmri_runs[0].shape[1]
+
+    train = [i for i in range(0, n_train)]
+    r2_cv_test_score = np.zeros((n_dim, n_alpha, n_voxel), dtype=np.float64)
+    
+    for idx, cv_test_id in enumerate(train):
+        score_file_name = op.join(
+            output_dir, 'cache', "{}_fold_{}.npz".format(loglabel, idx))
+        search_name =  op.join(
+            output_dir, 'cache', "*{}*_fold_{}.npz".format(loglabel, idx))
+        file_list = glob.glob(search_name)
+        if len(file_list) > 0:
+            print('Fold {}/{} for {} of {} exists.'.format(idx, n_train, loglabel, model), flush=True)
+            continue
+        print('Fold {}/{}'.format(idx, n_train), flush=True)
+        fmri_data = np.vstack([fmri_runs[i] for i in train if i != cv_test_id])
+        predictors_ref = np.vstack([design_matrices[i]
+                                    for i in train if i != cv_test_id])
+
+        parallel_res = Parallel(n_jobs=core_number, prefer="threads")(
+            delayed(parallel_fit)(alpha, predictors_ref[:, :dim], fmri_data, \
+                design_matrices[cv_test_id][:, :dim], fmri_runs[cv_test_id])
+            for idx1, dim in enumerate(dimensions) for idx2, alpha in enumerate(alphas))
+
+        r2_cv_test_score = np.array(parallel_res).reshape(n_dim, n_alpha, n_voxel)
+        np.savez_compressed(score_file_name, r2_test=r2_cv_test_score,  \
+            #  mse_test=mse_cv_test_score, mse_train=mse_cv_train_score,  \r2_train=r2_cv_train_score,
+                 alpha=np.array(alphas), dimension=np.array(dimensions))
+
+        # files.download(log_file_name)
+        if verbose == 'mail':
+            msg = 'Fold {}/{} of subject {} dumped'.format(
+                idx, n_train, loglabel)
+            send_mail_log('{} loop'.format(model), msg)
+
+    return
 
 
 def generate_group_imgs(subject_list, input_dir, output_dir, file_id='test', result_type='r2'):
@@ -159,14 +212,26 @@ def process_subject(subj_dir, subject, dtx_mat, output_dir, model_name, alpha_sp
 
     fmri_filenames = sorted(
         glob.glob(os.path.join(subj_dir, subject, "run*.nii.gz")))
+    if verbose:
+        print(fmri_filenames)
+    # Temporary Fix
+    file_path = op.join(subj_dir, 'masker.pkl')
+    if op.isfile(file_path):
+        print('Env: Loading masker')
+        with open(file_path, mode='rb') as fl:
+            masker = pickle.load(fl)
+
     with warnings.catch_warnings(): 
         # Disable RuntimeWarning: invalid value encountered in sqrt std = np.sqrt((signals ** 2).sum(axis=0))
         warnings.simplefilter("ignore", category=RuntimeWarning)
         fmri_runs = [masker.transform(f) for f in fmri_filenames]
+    if verbose:
+        for i in range(len(fmri_runs)):
+            print(np.mean(fmri_runs[i], axis=0), np.var(fmri_runs[i], axis=0))
 
     dim_alpha_search_with_log(fmri_runs, dtx_mat, alpha_space,
                               dimension_space, subject, model_name, output_dir, send_mail_log, core_number, verbose)
-    gc.collect()
+    # gc.collect()
     # generate_subject_imgs(subject, output_dir, masker)
 
 
@@ -191,15 +256,15 @@ def main(dmtx_dir, subj_dir, output_dir, model_name, alpha_space, dimension_spac
     if dimension_space is None:
         dimension_space = [dtx_mat[0].shape[1]]
 
-    subjlist = [op.basename(f) for f in glob.glob(op.join(subj_dir, 'sub*'))]
+    subjlist = sorted([op.basename(f) for f in glob.glob(op.join(subj_dir, 'sub*'))])
 
     for idx, subject in enumerate(subjlist):
        
         msg = """Begin processing {}/{}: {} 
-Searching space is:
-    alpha : {}
-    dim   : {}
-""".format(idx, len(subjlist), subject, alpha_space, dimension_space)
+        Searching space is:
+            alpha : {}
+            dim   : {}
+        """.format(idx, len(subjlist), subject, alpha_space, dimension_space)
         if verbose:
             print(msg, flush=True)
             send_mail_log('{} loop'.format(model_name), msg)
